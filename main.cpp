@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <cmath>
 
 #include <SDL.h>
 
@@ -27,6 +28,20 @@ struct Color
         };
     };
 };
+float ColorError(Color c1, Color c2)
+{
+    float red1 = (float)c1.r / 255.f;
+    float red2 = (float)c2.r / 255.f;
+    float green1 = (float)c1.g / 255.f;
+    float green2 = (float)c2.g / 255.f;
+    float blue1 = (float)c1.b / 255.f;
+    float blue2 = (float)c2.b / 255.f;
+
+    float dr = abs(red1 - red2);
+    float dg = abs(green1 - green2);
+    float db = abs(blue1 - blue2);
+    return (dr + dg + db) / 3.f;
+}
 
 struct Canvas
 {
@@ -189,6 +204,74 @@ Color AvgColorForLine(Canvas *canvas, int x0, int y0, int x1, int y1)
     retVal.a = alpha;
     return retVal;
 }
+
+float ErrorForLine(Canvas *canvas, int x0, int y0, int x1, int y1, Color c)
+{
+    int samples = 0;
+    float totalError = 0;
+    bool steep = abs(y1 - y0) > abs(x1 - x0);
+    if (steep)
+    {
+        int tmp;
+        tmp = x0;
+        x0 = y0;
+        y0 = tmp;
+
+        tmp = x1;
+        x1 = y1;
+        y1 = tmp;
+    }
+
+    if (x0 > x1)
+    {
+        int tx = x0, ty = y0;
+        x0 = x1;
+        y0 = y1;
+        x1 = tx;
+        y1 = ty;
+    }
+
+    int64_t dx, dy;
+    dx = x1 - x0;
+    dy = abs(y1 - y0);
+
+    int64_t err = dx / 2;
+    int64_t ystep;
+    if (y0 < y1)
+    {
+        ystep = 1;
+    }
+    else
+    {
+        ystep = -1;
+    }
+    int x = x0;
+    int y = y0;
+    for (; x <= x1; x++)
+    {
+        if (steep)
+        {
+
+            Color ec = read_pixel(canvas, y, x);
+            samples++;
+            totalError += ColorError(c, ec);
+        }
+        else
+        {
+            Color ec = read_pixel(canvas, x, y);
+            samples++;
+            totalError += ColorError(c, ec);
+        }
+        err -= dy;
+        if (err < 0)
+        {
+            y += ystep;
+            err += dx;
+        }
+    }
+    return totalError / (float)samples;
+}
+
 void DrawLine(Canvas *canvas, int x0, int y0, int x1, int y1, Color c)
 {
     bool steep = abs(y1 - y0) > abs(x1 - x0);
@@ -262,9 +345,9 @@ int Length(int x0, int y0, int x1, int y1)
     int dy = y1 - y0;
     return (int)sqrt(dx * dx + dy * dy);
 }
-
-void DisplayCanvas(Canvas *canvas, void *window)
+bool PointsValid(Canvas *canvas, int x0, int y0)
 {
+    return x0 >= 0 && x0 < canvas->Width && y0 >= 0 && y0 < canvas->Height;
 }
 
 int main(int argc, char **argv)
@@ -293,42 +376,60 @@ int main(int argc, char **argv)
                                           0);
     SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, 0);
     SDL_Texture *texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ABGR8888, SDL_TEXTUREACCESS_STREAMING, writeCanvas.Width, writeCanvas.Height);
-
-    for (auto times = 0; times < 10000; ++times)
+clear_image(&writeCanvas, averageColor);
+    for (auto lines = 0; lines < 20000;)
     {
+
+        
+
         SDL_Event event;
-        while(SDL_PollEvent(&event))
+        while (SDL_PollEvent(&event))
         {
-            if(event.type == SDL_QUIT)
+            if (event.type == SDL_QUIT)
             {
-                times = 1000000;
+                exit(0);
             }
         }
-        clear_image(&writeCanvas, averageColor);
-        for (auto i = 0; i < 10000; ++i)
+        int x0 = rand() % writeCanvas.Width;
+        int y0 = rand() % writeCanvas.Height;
+
+        float startAlpha = 2.f * M_PI * ((float)(rand() % 1000) / 1000.f);
+        for (float alpha = startAlpha; alpha < (startAlpha + M_PI * 2.0f); alpha += (2.0 * M_PI) / 200.f)
         {
-            int x0 = rand() % writeCanvas.Width;
-            int y0 = rand() % writeCanvas.Height;
-            int x1 = rand() % writeCanvas.Width;
-            int y1 = rand() % writeCanvas.Height;
-            while (Length(x0, y0, x1, y1) > 150 || Length(x0, y0, x1, y1) < 100 )
+            for (float lineLength = writeCanvas.Height / 2.f; lineLength > 0; lineLength -= writeCanvas.Height / 15.f)
             {
-                x0 = rand() % writeCanvas.Width;
-                y0 = rand() % writeCanvas.Height;
-                x1 = rand() % writeCanvas.Width;
-                y1 = rand() % writeCanvas.Height;
+
+                int x1 = x0 + lineLength * cos(alpha);
+                int y1 = y0 + lineLength * sin(alpha);
+                while (SDL_PollEvent(&event))
+                {
+                    if (event.type == SDL_QUIT)
+                    {
+                        exit(0);
+                    }
+                }
+                if (PointsValid(&writeCanvas, x1, y1))
+                {
+                    Color c = AvgColorForLine(&readCanvas, x0, y0, x1, y1);
+                    if (ErrorForLine(&readCanvas, x0, y0, x1, y1, c) < 0.2f)
+                    {
+                        c.a = 0x80;
+                        DrawLine(&writeCanvas, x0, y0, x1, y1, c);
+                        lines += 1;
+                        goto out;
+                    }
+                }
             }
-            Color c = AvgColorForLine(&readCanvas, x0, y0, x1, y1);
-            c.g = c.g & 0xF0;
-            c.b = c.b & 0xF0;
-            c.r = c.r & 0xF0;
-            c.a = 0x80; //0x80;
-            DrawLine(&writeCanvas, x0, y0, x1, y1, c);
         }
+
+    out:
+
         SDL_UpdateTexture(texture, 0, writeCanvas.Buffer, 4 * writeCanvas.Width);
         SDL_RenderCopy(renderer, texture, 0, 0);
         SDL_RenderPresent(renderer);
+        
     }
+    SDL_Delay(10000);
     stbi_write_bmp("testimage_out.bmp", writeCanvas.Width, writeCanvas.Height, 4, (uint8_t *)writeCanvas.Buffer);
     return 0;
 }
