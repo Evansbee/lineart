@@ -5,6 +5,8 @@
 #include <cstdio>
 #include <cstdlib>
 
+#include <SDL.h>
+
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 
@@ -261,8 +263,13 @@ int Length(int x0, int y0, int x1, int y1)
     return (int)sqrt(dx * dx + dy * dy);
 }
 
+void DisplayCanvas(Canvas *canvas, void *window)
+{
+}
+
 int main(int argc, char **argv)
 {
+    srand(time(NULL));
     const char testFile[] = "testimage.bmp";
     Canvas readCanvas;
     Canvas writeCanvas;
@@ -273,30 +280,54 @@ int main(int argc, char **argv)
     writeCanvas.Height = readCanvas.Height;
     writeCanvas.Width = readCanvas.Width;
     writeCanvas.Buffer = (Color *)malloc(sizeof(Color) * writeCanvas.Width * writeCanvas.Height);
-    printf("W: %d H: %d\n", readCanvas.Width, readCanvas.Height);
+
     //get average canvas color;
     Color averageColor = get_image_average(&readCanvas);
-    clear_image(&writeCanvas, averageColor);
-    printf("Average Color: %08x\n", averageColor.rgba);
-    for (auto i = 0; i < 10000; ++i)
+
+    SDL_Init(SDL_INIT_VIDEO);
+    SDL_Window *window = SDL_CreateWindow("LineArt",
+                                          SDL_WINDOWPOS_UNDEFINED,
+                                          SDL_WINDOWPOS_UNDEFINED,
+                                          writeCanvas.Width,
+                                          writeCanvas.Height,
+                                          0);
+    SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, 0);
+    SDL_Texture *texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ABGR8888, SDL_TEXTUREACCESS_STREAMING, writeCanvas.Width, writeCanvas.Height);
+
+    for (auto times = 0; times < 10000; ++times)
     {
-        int x0 = rand() % writeCanvas.Width;
-        int y0 = rand() % writeCanvas.Height;
-        int x1 = rand() % writeCanvas.Width;
-        int y1 = rand() % writeCanvas.Height;
-        while (Length(x0, y0, x1, y1) > 50)
+        SDL_Event event;
+        while(SDL_PollEvent(&event))
         {
-            x0 = rand() % writeCanvas.Width;
-            y0 = rand() % writeCanvas.Height;
-            x1 = rand() % writeCanvas.Width;
-            y1 = rand() % writeCanvas.Height;
+            if(event.type == SDL_QUIT)
+            {
+                times = 1000000;
+            }
         }
-        Color c = AvgColorForLine(&readCanvas, x0, y0, x1, y1);
-        c.g = c.g & 0xF0;
-        c.b = c.b & 0xF0;
-        c.r = c.r & 0xF0;
-        c.a = 0x80;//0x80;
-        DrawLine(&writeCanvas, x0, y0, x1, y1, c);
+        clear_image(&writeCanvas, averageColor);
+        for (auto i = 0; i < 10000; ++i)
+        {
+            int x0 = rand() % writeCanvas.Width;
+            int y0 = rand() % writeCanvas.Height;
+            int x1 = rand() % writeCanvas.Width;
+            int y1 = rand() % writeCanvas.Height;
+            while (Length(x0, y0, x1, y1) > 150 || Length(x0, y0, x1, y1) < 100 )
+            {
+                x0 = rand() % writeCanvas.Width;
+                y0 = rand() % writeCanvas.Height;
+                x1 = rand() % writeCanvas.Width;
+                y1 = rand() % writeCanvas.Height;
+            }
+            Color c = AvgColorForLine(&readCanvas, x0, y0, x1, y1);
+            c.g = c.g & 0xF0;
+            c.b = c.b & 0xF0;
+            c.r = c.r & 0xF0;
+            c.a = 0x80; //0x80;
+            DrawLine(&writeCanvas, x0, y0, x1, y1, c);
+        }
+        SDL_UpdateTexture(texture, 0, writeCanvas.Buffer, 4 * writeCanvas.Width);
+        SDL_RenderCopy(renderer, texture, 0, 0);
+        SDL_RenderPresent(renderer);
     }
     stbi_write_bmp("testimage_out.bmp", writeCanvas.Width, writeCanvas.Height, 4, (uint8_t *)writeCanvas.Buffer);
     return 0;
