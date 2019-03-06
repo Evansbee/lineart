@@ -37,9 +37,9 @@ float green2 = (float)c2.g / 255.f;
 float blue1 = (float)c1.b / 255.f;
 float blue2 = (float)c2.b / 255.f;
 
-float dr = abs(red1 - red2);
-float dg = abs(green1 - green2);
-float db = abs(blue1 - blue2);
+float dr = (red1-red2) * (red1 - red2);
+float dg = (green1 - green2) * (green1 - green2);
+float db = (blue1 - blue2) * (blue1 - blue2);
 return (dr + dg + db) / 3.f;
 }
 
@@ -409,7 +409,7 @@ while(true)
             if (PointsValid(&writeCanvas, x1, y1))
             {
                 Color c = AvgColorForLine(&readCanvas, x0, y0, x1, y1);
-                if (ErrorForLine(&readCanvas, x0, y0, x1, y1, c) < (0.005f * lineLength))
+                if (ErrorForLine(&readCanvas, x0, y0, x1, y1, c) < 0.005f)
                 {
                     //c.a = 192;
                     DrawLine(&writeCanvas, x0, y0, x1, y1, c);
